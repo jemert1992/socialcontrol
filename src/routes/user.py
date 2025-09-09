@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
-from src.models.user import User, db
+from src.models.user import User
+from src.main import db
 
 user_bp = Blueprint('user', __name__)
 
@@ -10,7 +11,6 @@ def get_users():
 
 @user_bp.route('/users', methods=['POST'])
 def create_user():
-    
     data = request.json
     user = User(username=data['username'], email=data['email'])
     db.session.add(user)
