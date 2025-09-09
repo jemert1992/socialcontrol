@@ -1,8 +1,7 @@
-from flask_sqlalchemy import SQLAlchemy
+# Import the single db instance from main.py
+from src.main import db
 from datetime import datetime
 import os
-
-db = SQLAlchemy()
 
 class Content(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -52,4 +51,3 @@ class SocialAccount(db.Model):
             'is_active': self.is_active,
             'created_at': self.created_at.isoformat()
         }
-
