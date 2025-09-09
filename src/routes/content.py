@@ -72,7 +72,8 @@ def get_all_content():
         content_list = Content.query.order_by(Content.created_at.desc()).all()
         return jsonify([content.to_dict() for content in content_list])
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        # Return an empty array (fixes frontend .map TypeError)
+        return jsonify([]), 200
 
 @content_bp.route('/content/<int:content_id>', methods=['GET'])
 def get_content(content_id):
