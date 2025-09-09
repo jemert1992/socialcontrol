@@ -8,6 +8,7 @@ from src.models.content import db, Content, SocialAccount
 import json
 
 content_bp = Blueprint('content', __name__)
+
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'avi'}
 
@@ -35,24 +36,42 @@ def upload_content():
         if not allowed_file(file.filename):
             return jsonify({'error': 'File type not allowed'}), 400
         
-        # Create upload directory if it doesn't exist
-        upload_path = os.path.join(current_app.static_folder, UPLOAD_FOLDER)
-        os.makedirs(upload_path, exist_ok=True)
+        # Create uploads directory if it doesn't exist
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
         
         # Generate unique filename
+        file_id = str(uuid.uuid4())
         original_filename = secure_filename(file.filename)
-        unique_filename = f"{uuid.uuid4()}_{original_filename}"
-        file_path = os.path.join(upload_path, unique_filename)
+        file_extension = original_filename.rsplit('.', 1)[1].lower()
+        filename = f"{file_id}.{file_extension}"
+        filepath = os.path.join(UPLOAD_FOLDER, filename)
         
         # Save file
-        file.save(file_path)
+        file.save(filepath)
         
-        # Create database record
+        # Get additional data from form
+        caption = request.form.get('caption', '')
+        scheduled_time = request.form.get('scheduled_time')
+        status = request.form.get('status', 'draft')
+        
+        # Parse scheduled_time if provided
+        scheduled_datetime = None
+        if scheduled_time:
+            try:
+                scheduled_datetime = datetime.fromisoformat(scheduled_time.replace('Z', '+00:00'))
+            except ValueError:
+                return jsonify({'error': 'Invalid scheduled_time format'}), 400
+        
+        # Create content record
         content = Content(
-            filename=unique_filename,
+            filename=filename,
             original_filename=original_filename,
-            file_path=f"{UPLOAD_FOLDER}/{unique_filename}",
-            content_type=get_content_type(original_filename)
+            file_path=filepath,
+            content_type=get_content_type(original_filename),
+            caption=caption,
+            status=status,
+            scheduled_time=scheduled_datetime,
+            created_at=datetime.utcnow()
         )
         
         db.session.add(content)
@@ -67,17 +86,36 @@ def upload_content():
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
-@content_bp.route('/content', methods=['GET'])
-def get_all_content():
+@content_bp.route('/list', methods=['GET'])
+def list_content():
     try:
-        content_list = Content.query.order_by(Content.created_at.desc()).all()
-        return jsonify([content.to_dict() for content in content_list])
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 10, type=int)
+        status = request.args.get('status')
+        
+        query = Content.query
+        if status:
+            query = query.filter_by(status=status)
+        
+        pagination = query.paginate(
+            page=page, per_page=per_page, error_out=False
+        )
+        
+        return jsonify({
+            'content': [content.to_dict() for content in pagination.items],
+            'pagination': {
+                'page': page,
+                'pages': pagination.pages,
+                'per_page': per_page,
+                'total': pagination.total
+            }
+        })
+        
     except Exception as e:
         print(traceback.format_exc())
-        # Return an empty array (fixes frontend .map TypeError)
-        return jsonify([]), 200
+        return jsonify({'error': str(e)}), 500
 
-@content_bp.route('/content/<int:content_id>', methods=['GET'])
+@content_bp.route('/<int:content_id>', methods=['GET'])
 def get_content(content_id):
     try:
         content = Content.query.get_or_404(content_id)
@@ -86,55 +124,51 @@ def get_content(content_id):
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
-@content_bp.route('/content/<int:content_id>', methods=['PUT'])
+@content_bp.route('/<int:content_id>', methods=['PUT'])
 def update_content(content_id):
     try:
         content = Content.query.get_or_404(content_id)
         data = request.get_json()
         
+        # Update allowed fields
         if 'caption' in data:
             content.caption = data['caption']
-        if 'hashtags' in data:
-            content.hashtags = data['hashtags']
-        if 'platforms' in data:
-            content.platforms = json.dumps(data['platforms'])
-        if 'scheduled_time' in data and data['scheduled_time']:
-            content.scheduled_time = datetime.fromisoformat(data['scheduled_time'])
         if 'status' in data:
             content.status = data['status']
+        if 'scheduled_time' in data:
+            if data['scheduled_time']:
+                try:
+                    content.scheduled_time = datetime.fromisoformat(data['scheduled_time'].replace('Z', '+00:00'))
+                except ValueError:
+                    return jsonify({'error': 'Invalid scheduled_time format'}), 400
+            else:
+                content.scheduled_time = None
         
         db.session.commit()
-        return jsonify(content.to_dict())
+        
+        return jsonify({
+            'message': 'Content updated successfully',
+            'content': content.to_dict()
+        })
         
     except Exception as e:
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
-@content_bp.route('/content/<int:content_id>', methods=['DELETE'])
+@content_bp.route('/<int:content_id>', methods=['DELETE'])
 def delete_content(content_id):
     try:
         content = Content.query.get_or_404(content_id)
         
         # Delete file from filesystem
-        file_path = os.path.join(current_app.static_folder, content.file_path)
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        if os.path.exists(content.file_path):
+            os.remove(content.file_path)
         
-        # Delete from database
         db.session.delete(content)
         db.session.commit()
         
         return jsonify({'message': 'Content deleted successfully'})
         
-    except Exception as e:
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
-@content_bp.route('/accounts', methods=['GET'])
-def get_social_accounts():
-    try:
-        accounts = SocialAccount.query.filter_by(is_active=True).all()
-        return jsonify([account.to_dict() for account in accounts])
     except Exception as e:
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
@@ -192,6 +226,66 @@ def post_content(content_id):
         return jsonify({
             'message': 'Content posted successfully',
             'results': results
+        })
+        
+    except Exception as e:
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+# Queue endpoints for scheduling support
+@content_bp.route('/api/queue', methods=['GET'])
+def get_queue():
+    """Get all scheduled and draft content sorted by scheduled_time ascending."""
+    try:
+        # Query for scheduled and draft content
+        content_query = Content.query.filter(
+            Content.status.in_(['scheduled', 'draft'])
+        ).order_by(Content.scheduled_time.asc())
+        
+        content_list = content_query.all()
+        
+        return jsonify({
+            'message': 'Queue retrieved successfully',
+            'queue': [content.to_dict() for content in content_list],
+            'count': len(content_list)
+        })
+        
+    except Exception as e:
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@content_bp.route('/api/queue/process', methods=['POST'])
+def process_queue():
+    """Process and mark eligible scheduled content as 'posting' (stub for future deployment integration)."""
+    try:
+        current_time = datetime.utcnow()
+        
+        # Find scheduled content that is due to be posted
+        eligible_content = Content.query.filter(
+            Content.status == 'scheduled',
+            Content.scheduled_time <= current_time
+        ).all()
+        
+        processed_items = []
+        
+        for content in eligible_content:
+            # Mark as 'posting' status (stub for actual deployment/integration)
+            content.status = 'posting'
+            processed_items.append({
+                'id': content.id,
+                'filename': content.filename,
+                'caption': content.caption,
+                'scheduled_time': content.scheduled_time.isoformat() if content.scheduled_time else None,
+                'status': content.status
+            })
+        
+        # Commit the status changes
+        db.session.commit()
+        
+        return jsonify({
+            'message': f'Processed {len(processed_items)} items from queue',
+            'processed_items': processed_items,
+            'count': len(processed_items)
         })
         
     except Exception as e:
