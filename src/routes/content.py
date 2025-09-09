@@ -2,12 +2,12 @@ from flask import Blueprint, request, jsonify, current_app
 from werkzeug.utils import secure_filename
 import os
 import uuid
+import traceback
 from datetime import datetime
 from src.models.content import db, Content, SocialAccount
 import json
 
 content_bp = Blueprint('content', __name__)
-
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'avi'}
 
@@ -64,6 +64,7 @@ def upload_content():
         }), 201
         
     except Exception as e:
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @content_bp.route('/content', methods=['GET'])
@@ -72,6 +73,7 @@ def get_all_content():
         content_list = Content.query.order_by(Content.created_at.desc()).all()
         return jsonify([content.to_dict() for content in content_list])
     except Exception as e:
+        print(traceback.format_exc())
         # Return an empty array (fixes frontend .map TypeError)
         return jsonify([]), 200
 
@@ -81,6 +83,7 @@ def get_content(content_id):
         content = Content.query.get_or_404(content_id)
         return jsonify(content.to_dict())
     except Exception as e:
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @content_bp.route('/content/<int:content_id>', methods=['PUT'])
@@ -104,6 +107,7 @@ def update_content(content_id):
         return jsonify(content.to_dict())
         
     except Exception as e:
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @content_bp.route('/content/<int:content_id>', methods=['DELETE'])
@@ -123,6 +127,7 @@ def delete_content(content_id):
         return jsonify({'message': 'Content deleted successfully'})
         
     except Exception as e:
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @content_bp.route('/accounts', methods=['GET'])
@@ -131,6 +136,7 @@ def get_social_accounts():
         accounts = SocialAccount.query.filter_by(is_active=True).all()
         return jsonify([account.to_dict() for account in accounts])
     except Exception as e:
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @content_bp.route('/accounts', methods=['POST'])
@@ -154,6 +160,7 @@ def add_social_account():
         }), 201
         
     except Exception as e:
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @content_bp.route('/post/<int:content_id>', methods=['POST'])
@@ -188,5 +195,5 @@ def post_content(content_id):
         })
         
     except Exception as e:
+        print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
-
