@@ -6,9 +6,9 @@ import traceback
 from datetime import datetime
 from src.models.content import db, Content, SocialAccount
 import json
+import requests
 
 content_bp = Blueprint('content', __name__)
-
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'mp4', 'mov', 'avi'}
 
@@ -274,8 +274,7 @@ def process_queue():
                 content.status = 'posting'
                 db.session.commit()
                 
-                # Simulate deployment to n8n webhook or other target
-                # TODO: Replace with actual requests.post call to configurable URL
+                # Prepare deployment payload for n8n webhook
                 deployment_payload = {
                     'content_id': content.id,
                     'filename': content.filename,
@@ -286,16 +285,16 @@ def process_queue():
                     'scheduled_time': content.scheduled_time.isoformat() if content.scheduled_time else None
                 }
                 
-                # Simulate successful deployment
-                # In future: response = requests.post(deployment_url, json=deployment_payload)
-                deployment_success = True  # Simulate success
+                # POST to n8n webhook
+                webhook_url = 'https://jemertai.app.n8n.cloud/webhook/deploy-content'
+                response = requests.post(webhook_url, json=deployment_payload, timeout=30)
                 
-                if deployment_success:
+                if response.status_code == 200:
                     # Mark as posted and set posted_at timestamp
                     content.status = 'posted'
                     content.posted_at = datetime.utcnow()
                 else:
-                    # Mark as failed if deployment unsuccessful
+                    # Mark as failed if webhook returns non-200 status
                     content.status = 'failed'
                 
                 db.session.commit()
@@ -306,7 +305,8 @@ def process_queue():
                     'caption': content.caption,
                     'scheduled_time': content.scheduled_time.isoformat() if content.scheduled_time else None,
                     'status': content.status,
-                    'posted_at': content.posted_at.isoformat() if content.posted_at else None
+                    'posted_at': content.posted_at.isoformat() if content.posted_at else None,
+                    'webhook_status_code': response.status_code
                 })
                 
             except Exception as deploy_error:
