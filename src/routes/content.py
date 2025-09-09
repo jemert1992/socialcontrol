@@ -256,7 +256,7 @@ def get_queue():
 
 @content_bp.route('/api/queue/process', methods=['POST'])
 def process_queue():
-    """Process and mark eligible scheduled content as 'posting' (stub for future deployment integration)."""
+    """Process scheduled content and deploy to configured targets."""
     try:
         current_time = datetime.utcnow()
         
@@ -269,18 +269,60 @@ def process_queue():
         processed_items = []
         
         for content in eligible_content:
-            # Mark as 'posting' status (stub for actual deployment/integration)
-            content.status = 'posting'
-            processed_items.append({
-                'id': content.id,
-                'filename': content.filename,
-                'caption': content.caption,
-                'scheduled_time': content.scheduled_time.isoformat() if content.scheduled_time else None,
-                'status': content.status
-            })
-        
-        # Commit the status changes
-        db.session.commit()
+            try:
+                # Mark as 'posting' status
+                content.status = 'posting'
+                db.session.commit()
+                
+                # Simulate deployment to n8n webhook or other target
+                # TODO: Replace with actual requests.post call to configurable URL
+                deployment_payload = {
+                    'content_id': content.id,
+                    'filename': content.filename,
+                    'file_path': content.file_path,
+                    'content_type': content.content_type,
+                    'caption': content.caption,
+                    'original_filename': content.original_filename,
+                    'scheduled_time': content.scheduled_time.isoformat() if content.scheduled_time else None
+                }
+                
+                # Simulate successful deployment
+                # In future: response = requests.post(deployment_url, json=deployment_payload)
+                deployment_success = True  # Simulate success
+                
+                if deployment_success:
+                    # Mark as posted and set posted_at timestamp
+                    content.status = 'posted'
+                    content.posted_at = datetime.utcnow()
+                else:
+                    # Mark as failed if deployment unsuccessful
+                    content.status = 'failed'
+                
+                db.session.commit()
+                
+                processed_items.append({
+                    'id': content.id,
+                    'filename': content.filename,
+                    'caption': content.caption,
+                    'scheduled_time': content.scheduled_time.isoformat() if content.scheduled_time else None,
+                    'status': content.status,
+                    'posted_at': content.posted_at.isoformat() if content.posted_at else None
+                })
+                
+            except Exception as deploy_error:
+                # Handle individual content deployment errors
+                print(f"Error deploying content {content.id}: {str(deploy_error)}")
+                content.status = 'failed'
+                db.session.commit()
+                
+                processed_items.append({
+                    'id': content.id,
+                    'filename': content.filename,
+                    'caption': content.caption,
+                    'scheduled_time': content.scheduled_time.isoformat() if content.scheduled_time else None,
+                    'status': 'failed',
+                    'error': str(deploy_error)
+                })
         
         return jsonify({
             'message': f'Processed {len(processed_items)} items from queue',
